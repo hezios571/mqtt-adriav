@@ -1,24 +1,17 @@
 {
-    "version": "2.0.0",
-    "tasks": [
-        {
-            "label": "Start Mosquitto Broker",
-            "type": "shell",
-            "command": "\"C:\\Program Files\\mosquitto\\mosquitto.exe\"",
-            "args": [
-                "-v"
-            ],
-            "presentation": {
-                "echo": true,
-                "reveal": "always",
-                "focus": true,
-                "panel": "dedicated"
-            },
-            "problemMatcher": [],
-            "group": {
-                "kind": "build",
-                "isDefault": true
-            }
-        }
-    ]
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Start Mosquitto Broker",
+      "type": "process",
+      "command": "C:\\Program Files\\mosquitto\\mosquitto.exe",
+      "args": ["-v"],
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": true,
+        "panel": "dedicated"
+      }
+    }
+  ]
 }

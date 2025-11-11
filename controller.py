@@ -12,5 +12,10 @@ client.on_message = on_message
 client.connect(BROKER, PORT)
 client.subscribe(TOPIC)
 
-print("[controller] connected and waiting for messages...")
-client.loop_forever()
+# 🔴 this runs the network loop in background
+client.loop_start()
+
+print("[controller] listening... press Enter to quit")
+input()
+client.loop_stop()
+client.disconnect()
