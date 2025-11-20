@@ -5,60 +5,124 @@ import os
 
 BROKER = "localhost"
 PORT = 1883
-FILE_TOPIC = "adriav/file/transfer"
-ACK_TOPIC = "adriav/file/ack"
 
-CHUNK_SIZE = 50000  # ~50KB chunks
+FILE_TOPIC_IN = "adriav/file/to_injector"
+FILE_TOPIC_OUT = "adriav/file/to_controller"
+
+CHAT_IN = "adriav/chat/controller_to_injector"
+CHAT_OUT = "adriav/chat/injector_to_controller"
+
+CHUNK_SIZE = 50000
+
+recv = {
+    "chunks": [],
+    "expected": 0,
+    "type": None
+}
+
+os.makedirs("injector", exist_ok=True)
 
 def on_message(client, userdata, msg):
-    print(f"\n[injector] received on {msg.topic}: {msg.payload.decode()}")
+    print(f"\n[injector] MQTT message on {msg.topic}")
+    payload = msg.payload.decode()
+
+    try:
+        obj = json.loads(payload)
+
+        # chat
+        if "chat" in obj:
+            print(f"[injector] message: {obj['chat']}")
+            return
+
+        header = obj.get("header", {})
+        title = header.get("title")
+
+        if title == "chunk":
+            idx = header["chunk_index"]
+            total = header["total_chunks"]
+            ftype = header["file_type"]
+
+            if not recv["chunks"]:
+                recv["chunks"] = [""] * total
+                recv["expected"] = total
+                recv["type"] = ftype
+
+            recv["chunks"][idx] = obj["payload"]
+            print(f"[injector] received chunk {idx+1}/{total}")
+
+        elif title == "done":
+            print("[injector] assembling file...")
+
+            full = "".join(recv["chunks"])
+            data = base64.b64decode(full)
+
+            filename = f"received_by_injector.{recv['type']}"
+            path = os.path.join("injector", filename)
+
+            with open(path, "wb") as f:
+                f.write(data)
+
+            print(f"[injector] file saved to {path}")
+
+            recv["chunks"] = []
+            recv["expected"] = 0
+            recv["type"] = None
+
+    except:
+        pass
 
 client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 client.on_message = on_message
 client.connect(BROKER, PORT)
 
-client.subscribe(ACK_TOPIC)
+client.subscribe(FILE_TOPIC_IN)
+client.subscribe(CHAT_IN)
 client.loop_start()
+
+print("[injector] Ready. Commands:")
+print("  msg <text>")
+print("  file <path>")
+print("  exit")
 
 def send_file(path):
     with open(path, "rb") as f:
         data = f.read()
 
-    file_type = path.split(".")[-1]
-    total_bytes = len(data)
-    encoded = base64.b64encode(data).decode()
+    ftype = path.split(".")[-1]
+    b64 = base64.b64encode(data).decode()
 
-    # break into chunks
-    chunks = [encoded[i:i+CHUNK_SIZE] for i in range(0, len(encoded), CHUNK_SIZE)]
-    total_chunks = len(chunks)
+    chunks = [b64[i:i+CHUNK_SIZE] for i in range(0, len(b64), CHUNK_SIZE)]
+    total = len(chunks)
 
-    print(f"[injector] sending {path} in {total_chunks} chunks...")
-
-    # send all chunks
     for idx, chunk in enumerate(chunks):
-        message = {
+        packet = {
             "header": {
                 "title": "chunk",
-                "file_type": file_type,
-                "total_bytes": total_bytes,
+                "file_type": ftype,
                 "chunk_index": idx,
-                "total_chunks": total_chunks
+                "total_chunks": total
             },
             "payload": chunk
         }
-        client.publish(FILE_TOPIC, json.dumps(message))
+        client.publish(FILE_TOPIC_OUT, json.dumps(packet))
 
-    # send final done message
-    done_msg = {"header": {"title": "done"}}
-    client.publish(FILE_TOPIC, json.dumps(done_msg))
-    print("[injector] file fully sent!")
+    client.publish(FILE_TOPIC_OUT, json.dumps({"header": {"title": "done"}}))
+    print("[injector] file sent")
 
-# CLI loop
 while True:
-    cmd = input("enter file to send (or 'exit'): ")
+    cmd = input("> ")
+
     if cmd == "exit":
         break
-    if os.path.isfile(cmd):
-        send_file(cmd)
-    else:
-        print("file not found")
+
+    if cmd.startswith("msg "):
+        text = cmd[4:]
+        client.publish(CHAT_OUT, json.dumps({"chat": text}))
+        print("[injector] message sent")
+
+    elif cmd.startswith("file "):
+        path = cmd[5:]
+        if os.path.isfile(path):
+            send_file(path)
+        else:
+            print("File not found.")
